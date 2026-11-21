@@ -3,7 +3,7 @@
 UI library with an animated intro, themes, and built-in **Settings** (hide key, themes, unload).
 
 ```lua
-local Onyx = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/Onyx.lua"))()
+local Onyx = loadstring(game:HttpGet("https://raw.githubusercontent.com/nuj5/onyx/main/onyx.lua"))()
 ```
 
 ## Window
