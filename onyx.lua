@@ -1,8 +1,9 @@
 --[[
-    Onyx UI Library  v1.0.0
+    Onyx UI Library  v1.1.0
     Roblox executor UI library. Built-in Settings (hide key, themes, unload) and Credits pages.
+    1.1.0: scrollable sidebar (tabs never overlap the user card), Card:AddCycle, Card:AddColor.
 
-    local Onyx = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/Onyx.lua"))()
+    local Onyx = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/onyx.lua"))()
     local Window = Onyx:CreateWindow({ Title = "My Hub", Credits = { Name = "Me" } })
     local Tab    = Window:AddTab("Main")
     local Card   = Tab:AddCard({ Title = "Modules", Subtitle = "Enable or disable features" })
@@ -16,7 +17,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local lp = Players.LocalPlayer
 
-local Onyx = { Version = "1.0.0" }
+local Onyx = { Version = "1.1.0" }
 
 local C         = Color3.fromRGB
 local WHITE     = C(255, 255, 255)
@@ -207,11 +208,26 @@ end
 local function easeOutQuint(a) return 1 - (1 - a) ^ 5 end
 local function easeOutCubic(a) return 1 - (1 - a) ^ 3 end
 
+-- "RRGGBB" <-> Color3. fromHex accepts an optional leading "#" and returns nil for anything else.
+local function toHex(color)
+    return string.format("%02X%02X%02X",
+        math.floor(color.R * 255 + 0.5), math.floor(color.G * 255 + 0.5), math.floor(color.B * 255 + 0.5))
+end
+local function fromHex(text)
+    if type(text) ~= "string" then return nil end
+    local r, g, b = string.match(text, "^%s*#?(%x%x)(%x%x)(%x%x)%s*$")
+    if not r then return nil end
+    return C(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
+end
+Onyx.ColorToHex, Onyx.HexToColor = toHex, fromHex
+
 -- layout constants
 local W, H, SIDE, TOP, RAD = 580, 380, 150, 44, 14
 local COL_W, COL_GAP, PAD = 195, 12, 14
 local WIDE_W = COL_W * 2 + COL_GAP
 local ROW_GAP, CARD_HEAD, CARD_FOOT = 6, 50, 10
+-- Sidebar nav region: starts under the MENU label, ends above the user card (which starts at H - 88).
+local NAV_TOP, NAV_BOTTOM, NAV_STEP = 92, 96, 40
 
 -- ═══════════════════════════════════════
 -- WINDOW
@@ -495,6 +511,16 @@ function Onyx:CreateWindow(opts)
         Font = Enum.Font.GothamBold; TextSize = 11; TextXAlignment = Enum.TextXAlignment.Center;
     }, StsBar)
 
+    -- The tab buttons live in their own scrolling frame that stops above the user card, so a long
+    -- tab list scrolls (mouse wheel / drag) instead of sliding underneath the card.
+    local NavScroll = make("ScrollingFrame", {
+        Name = "Nav"; Size = UDim2.fromOffset(SIDE, H - NAV_TOP - NAV_BOTTOM); Position = UDim2.fromOffset(0, NAV_TOP);
+        BackgroundTransparency = 1; BorderSizePixel = 0; ScrollBarThickness = 2;
+        ScrollBarImageColor3 = WHITE; ScrollBarImageTransparency = 0.3;
+        CanvasSize = UDim2.new(); ScrollingDirection = Enum.ScrollingDirection.Y;
+        ElasticBehavior = Enum.ElasticBehavior.Never; ClipsDescendants = true;
+    }, Side)
+
     -- ── top bar ────────────────────────────
     local TopBar = make("Frame", {
         Name = "TopBar"; Size = UDim2.new(1, -SIDE, 0, TOP); Position = UDim2.fromOffset(SIDE, 0);
@@ -637,11 +663,27 @@ function Onyx:CreateWindow(opts)
     end
     table.insert(refreshers, function() paintNav(false) end)
 
+    -- Scrolls the sidebar just enough that the selected tab's button is fully visible.
+    local function revealNav(tab)
+        local view = NavScroll.AbsoluteWindowSize.Y
+        if view <= 0 then return end
+        local top = tab.Nav.Position.Y.Offset
+        local bottom = top + tab.Nav.Size.Y.Offset
+        local y = NavScroll.CanvasPosition.Y
+        if top < y then
+            y = top - 2
+        elseif bottom > y + view then
+            y = bottom - view + 2
+        end
+        NavScroll.CanvasPosition = Vector2.new(0, math.max(y, 0))
+    end
+
     local function selectTab(tab)
         activeTab = tab
         for _, t in ipairs(allTabs) do t.Page.Visible = (t == tab) end
         PageTitle.Text = tab.Name
         paintNav(true)
+        revealNav(tab)
     end
 
     local builtinSettings, builtinCredits  -- assigned below
@@ -652,8 +694,9 @@ function Onyx:CreateWindow(opts)
         table.insert(navTabs, builtinSettings)
         table.insert(navTabs, builtinCredits)
         for i, t in ipairs(navTabs) do
-            t.Nav.Position = UDim2.fromOffset(12, 94 + (i - 1) * 40)
+            t.Nav.Position = UDim2.fromOffset(12, 2 + (i - 1) * NAV_STEP)
         end
+        NavScroll.CanvasSize = UDim2.fromOffset(0, #navTabs * NAV_STEP + 4)
     end
 
     local function createTab(name)
@@ -664,10 +707,10 @@ function Onyx:CreateWindow(opts)
         bind(page, "ScrollBarImageColor3", "accent")
 
         local nav = make("TextButton", {
-            Size = UDim2.fromOffset(SIDE - 24, 34); Position = UDim2.fromOffset(12, 94);
+            Size = UDim2.fromOffset(SIDE - 24, 34); Position = UDim2.fromOffset(12, 2);
             BackgroundColor3 = WHITE; BackgroundTransparency = 1; BorderSizePixel = 0; Text = name; TextColor3 = WHITE;
             Font = Enum.Font.GothamBold; TextSize = 13; TextXAlignment = Enum.TextXAlignment.Left; AutoButtonColor = false;
-        }, Side)
+        }, NavScroll)
         corner(nav, 10)
         local pad = Instance.new("UIPadding")
         pad.PaddingLeft = UDim.new(0, 14)
@@ -865,6 +908,94 @@ function Onyx:CreateWindow(opts)
             box.Text = tostring(v)
             if o.Flag then Window.Flags[o.Flag] = v end
             if not silent then safe(o.Callback, v) end
+        end
+        connect(box.Focused, function() st.Color = BLUE end)
+        connect(box.FocusLost, function()
+            st.Color = cur.line
+            ctl:Set(box.Text)
+        end)
+        return ctl
+    end
+
+    -- AddCycle({ Label, Options = { "A", "B" }, Default = index, Flag, Callback = function(option, index) end })
+    --   -> { Get() -> option, index ; Set(index, silent) }. Clicking the button steps to the next option.
+    function Card:AddCycle(o)
+        o = o or {}
+        local options = o.Options or {}
+        local count = #options
+        local index = math.clamp(math.floor(tonumber(o.Default) or 1), 1, math.max(count, 1))
+        if o.Flag then Window.Flags[o.Flag] = options[index] end
+
+        local row = self:_row(30, true)
+        rowLabel(row, o.Label, 100)
+        local btn = make("TextButton", {
+            Size = UDim2.fromOffset(84, 22); Position = UDim2.new(1, -92, 0.5, -11); BorderSizePixel = 0;
+            Text = tostring(options[index] or ""); Font = Enum.Font.GothamBold; TextSize = 11;
+            AutoButtonColor = false; TextTruncate = Enum.TextTruncate.AtEnd;
+        }, row)
+        corner(btn, 6)
+        bind(btn, "BackgroundColor3", "input")
+        bind(btn, "TextColor3", "inputTxt")
+        local st = stroke(btn, cur.line, 1)
+        bind(st, "Color", "line")
+
+        local ctl = {}
+        function ctl:Get() return options[index], index end
+        function ctl:Set(i, silent)
+            i = tonumber(i)
+            if not i or count == 0 then return end
+            i = math.clamp(math.floor(i), 1, count)
+            index = i
+            btn.Text = tostring(options[index])
+            if o.Flag then Window.Flags[o.Flag] = options[index] end
+            if not silent then safe(o.Callback, options[index], index) end
+        end
+        connect(btn.MouseButton1Click, function()
+            if count > 0 then ctl:Set(index % count + 1) end
+        end)
+        return ctl
+    end
+
+    -- AddColor({ Label, Default = Color3, Flag, Callback = function(color) end }) -> { Get, Set(Color3 | "RRGGBB", silent) }
+    -- A swatch plus a hex box: type RRGGBB (a leading # is fine) and press Enter or click away.
+    function Card:AddColor(o)
+        o = o or {}
+        local color = typeof(o.Default) == "Color3" and o.Default or WHITE
+        if o.Flag then Window.Flags[o.Flag] = color end
+
+        local row = self:_row(30, true)
+        rowLabel(row, o.Label, 110)
+        local swatch = make("Frame", {
+            Size = UDim2.fromOffset(18, 18); Position = UDim2.new(1, -96, 0.5, -9);
+            BackgroundColor3 = color; BorderSizePixel = 0;
+        }, row)
+        corner(swatch, 5)
+        local swatchStroke = stroke(swatch, cur.line, 1)
+        bind(swatchStroke, "Color", "line")
+        local box = make("TextBox", {
+            Size = UDim2.fromOffset(62, 22); Position = UDim2.new(1, -70, 0.5, -11); BorderSizePixel = 0;
+            Text = toHex(color); PlaceholderText = "RRGGBB"; Font = Enum.Font.GothamBold; TextSize = 11;
+            TextXAlignment = Enum.TextXAlignment.Center; ClearTextOnFocus = false;
+        }, row)
+        corner(box, 6)
+        bind(box, "BackgroundColor3", "input")
+        bind(box, "TextColor3", "inputTxt")
+        local st = stroke(box, cur.line, 1)
+        bind(st, "Color", "line")
+
+        local ctl = {}
+        function ctl:Get() return color end
+        function ctl:Set(v, silent)
+            if type(v) == "string" then v = fromHex(v) end
+            if typeof(v) ~= "Color3" then
+                box.Text = toHex(color) -- not a valid color: put the old one back
+                return
+            end
+            color = v
+            swatch.BackgroundColor3 = color
+            box.Text = toHex(color)
+            if o.Flag then Window.Flags[o.Flag] = color end
+            if not silent then safe(o.Callback, color) end
         end
         connect(box.Focused, function() st.Color = BLUE end)
         connect(box.FocusLost, function()
